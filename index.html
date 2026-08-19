@@ -6,6 +6,7 @@
 <title>AI + Sonar Career Calendar — Command Deck</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 :root{
   --bg:#0a1220; --panel:#101b2e; --panel2:#0d1728; --line:#1e2c47;
@@ -122,6 +123,8 @@ input::placeholder{color:#4d6389}
 .badge.build{background:var(--amber-dim);color:var(--amber)}
 .badge.review{background:#233355;color:#8fb4ff}
 .badge.learn{background:var(--accent-dim);color:var(--accent)}
+.badge.skip{background:#2a3346;color:#8fa0c2}
+.badge.edited{background:#2a3346;color:#c9d6ee;margin-left:4px}
 .row-actions{display:flex;gap:6px;align-items:center}
 .icon-btn{border:1px solid var(--line);background:var(--panel2);color:var(--muted);width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center}
 .icon-btn:hover{color:var(--accent);border-color:var(--accent)}
@@ -142,6 +145,32 @@ input::placeholder{color:#4d6389}
 .res-links{display:flex;gap:6px;flex-wrap:wrap}
 .res-links a{font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:5px 9px;text-decoration:none;color:var(--muted)}
 .res-links a:hover{color:var(--accent);border-color:var(--accent)}
+.edit-block .add-link{align-items:center}
+.edit-block select{padding:8px 10px}
+.edit-block input[type="date"]{padding:7px 10px}
+button.danger{border-color:var(--red-dim);color:var(--red)}
+button.danger:hover{border-color:var(--red);color:var(--red)}
+#syncStatus{display:inline-flex;align-items:center;gap:5px}
+#syncStatus .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+#syncStatus.ok .dot{background:var(--accent)}
+#syncStatus.busy .dot{background:var(--amber);animation:blink 1s infinite}
+#syncStatus.off .dot{background:var(--red)}
+@keyframes blink{50%{opacity:.3}}
+
+/* db modal */
+.modal-backdrop{position:fixed;inset:0;background:rgba(4,8,16,.7);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal-backdrop.open{display:flex}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:640px;width:100%;max-height:88vh;overflow:auto;padding:24px}
+.modal h2{margin-top:0;font-size:18px}
+.modal ol{color:var(--muted);font-size:13px;line-height:1.7;padding-left:20px}
+.modal .sql-box{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);white-space:pre-wrap;position:relative;margin:10px 0}
+.modal .warn{background:rgba(255,181,69,.08);border:1px solid var(--amber-dim);color:var(--amber);border-radius:9px;padding:10px 12px;font-size:12.5px;margin:12px 0}
+.modal .field{margin:10px 0}
+.modal .field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px}
+.modal .field input{width:100%}
+.modal .modal-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;align-items:center}
+.modal .close-x{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer}
+#dbStatusLine{font-size:12.5px;color:var(--muted);margin-top:6px}
 .oembed{margin-top:8px;display:flex;gap:8px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px}
 .oembed img{width:64px;border-radius:4px}
 
@@ -183,13 +212,14 @@ input::placeholder{color:#4d6389}
       <span><strong id="doneCount">0</strong>/<strong id="totalCount">0</strong> days logged</span>
       <span><strong id="streakCount">0</strong> day streak</span>
       <span><strong id="missedCount">0</strong> missed</span>
-      <span>saved locally in this browser — export to back up</span>
+      <span id="syncStatus" class="busy"><span class="dot"></span><span id="syncText">Checking sync…</span></span>
     </div>
     <div class="toolbar">
       <input id="search" type="search" placeholder="Search tasks, phases, notes…">
       <select id="jumpMonth"></select>
       <button id="viewList" class="active">☰ List</button>
       <button id="viewCal">◔ Calendar</button>
+      <button id="dbBtn">🗄 Database</button>
       <span style="flex:1"></span>
       <button id="markVisible">Mark visible done</button>
       <button id="clearVisible">Clear visible</button>
@@ -201,6 +231,45 @@ input::placeholder{color:#4d6389}
       <button id="reset">Reset</button>
     </div>
   </section>
+
+  <div class="modal-backdrop" id="dbModal">
+    <div class="modal">
+      <button class="close-x" id="dbClose">✕</button>
+      <h2>Connect a Supabase database</h2>
+      <p style="color:var(--muted);font-size:13px">This makes your progress a real Postgres table, reachable from
+      any browser or device — including this file hosted plain on GitHub Pages, no Claude needed.</p>
+      <ol>
+        <li>Create a free project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</li>
+        <li>Open the <b>SQL Editor</b> in your project and run the snippet below once.</li>
+        <li>Go to <b>Project Settings → API</b>, copy the <b>Project URL</b> and the <b>anon public</b> key, and paste them below.</li>
+      </ol>
+      <div class="sql-box" id="sqlSnippet">create table public.calendar_days (
+  date date primary key,
+  done boolean default false,
+  note text default '',
+  links jsonb default '[]'::jsonb,
+  override jsonb,
+  updated_at timestamptz default now()
+);
+
+alter table public.calendar_days enable row level security;
+
+create policy "anon read/write (single-user tool)"
+on public.calendar_days for all
+using (true) with check (true);</div>
+      <button id="copySql">Copy SQL</button>
+      <div class="warn">⚠ The policy above lets anyone with your URL + anon key read/write this table — fine for a
+      personal tracker, but <b>don't commit the URL/key into a public repo</b>. They're saved only in this browser's
+      localStorage when you hit Connect below. Use a private repo, or add real Supabase Auth later, if that matters to you.</div>
+      <div class="field"><label>Project URL</label><input type="text" id="sbUrl" placeholder="https://xxxxx.supabase.co"></div>
+      <div class="field"><label>Anon public key</label><input type="text" id="sbKey" placeholder="eyJhbGciOi…"></div>
+      <div class="modal-actions">
+        <button class="primary" id="sbConnect">Connect</button>
+        <button id="sbDisconnect">Disconnect</button>
+        <span id="dbStatusLine"></span>
+      </div>
+    </div>
+  </div>
 
   <div class="phase-grid" id="phaseGrid"></div>
 
@@ -220,9 +289,10 @@ input::placeholder{color:#4d6389}
     software/architecture experience with AI, C++, DSP, sensor fusion and real-time intelligent systems. Sonar is the
     specialist laboratory, not the only career option.<br>
     Task labels are generated from rotating topic pools per phase (not a hand-authored day-by-day script) — drag any
-    task onto another day to reorder the curriculum to your liking. Progress, notes and links live in this browser's
-    localStorage only; use <b>Export</b> to save a JSON snapshot you can commit to your repo, and <b>Import</b> to
-    restore it on another machine.
+    task onto another day to reorder, or use the ⚙ icon on a day to rename it, mark it a rest day, or merge in a
+    topic from another date. Progress, notes and links sync to your Claude account (see the status dot in the header)
+    so they follow you across devices signed into Claude — <b>Export</b> still gives you a portable JSON snapshot for
+    your own backup or to commit into the repo.
   </div>
 </div>
 
@@ -313,20 +383,135 @@ for(let i=1;i<=TOTAL_DAYS;i++){
 const byDate = {}; SCHEDULE.forEach(s=>byDate[s.date]=s);
 const todayISO = iso(new Date());
 
-/* ---------------- state ---------------- */
-const LS = {
-  progress:"aisonar_v2_progress", notes:"aisonar_v2_notes", links:"aisonar_v2_links", overrides:"aisonar_v2_overrides"
-};
-function loadJSON(k){ try{return JSON.parse(localStorage.getItem(k)||"{}")}catch(e){return {}} }
-let progress = loadJSON(LS.progress);
-let notes = loadJSON(LS.notes);
-let links = loadJSON(LS.links);
-let overrides = loadJSON(LS.overrides);
-function saveAll(){
-  localStorage.setItem(LS.progress, JSON.stringify(progress));
-  localStorage.setItem(LS.notes, JSON.stringify(notes));
-  localStorage.setItem(LS.links, JSON.stringify(links));
-  localStorage.setItem(LS.overrides, JSON.stringify(overrides));
+/* ---------------- state + storage ---------------- */
+// Three tiers, tried in order: 1) Supabase (real Postgres — cross-device from
+// anywhere, no Claude required, config lives in this browser's localStorage
+// only, never in the file itself) 2) window.storage (Claude account sync,
+// works inside claude.ai only) 3) plain localStorage (this browser only).
+const LS_KEY = "aisonar_v2_state";
+const CLOUD_KEY = "aisonar_state";
+const SB_CFG_KEY = "aisonar_supabase_cfg";
+const hasCloud = (typeof window.storage !== "undefined" && window.storage);
+
+let progress = {}, notes = {}, links = {}, overrides = {};
+let dbMode = "local"; // 'supabase' | 'claude' | 'local'
+let sb = null;
+const dirty = new Set();
+
+function getSbConfig(){ try{ return JSON.parse(localStorage.getItem(SB_CFG_KEY)||"null"); }catch(e){ return null; } }
+function setSbConfig(cfg){ if(cfg) localStorage.setItem(SB_CFG_KEY, JSON.stringify(cfg)); else localStorage.removeItem(SB_CFG_KEY); }
+
+function loadLocal(){
+  try{ return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }catch(e){ return {}; }
+}
+function saveLocal(){
+  localStorage.setItem(LS_KEY, JSON.stringify({progress,notes,links,overrides}));
+}
+function setSync(state,text){
+  const el = document.getElementById("syncStatus");
+  el.className = state; document.getElementById("syncText").textContent = text;
+  const line = document.getElementById("dbStatusLine");
+  if(line) line.textContent = text;
+}
+function markDirty(date){ if(date) dirty.add(date); }
+function markAllDirty(){ SCHEDULE.forEach(s=>dirty.add(s.date)); }
+
+let saveTimer=null;
+function saveAll(date){
+  saveLocal();
+  markDirty(date);
+  if(dbMode==="supabase"){
+    setSync("busy","Saving to Supabase…");
+    clearTimeout(saveTimer); saveTimer=setTimeout(flushSupabase,500);
+  } else if(hasCloud){
+    setSync("busy","Saving…");
+    clearTimeout(saveTimer); saveTimer=setTimeout(persistCloud,500);
+  } else {
+    setSync("off","Local only — this browser (Export to back up)");
+  }
+}
+async function flushSupabase(){
+  const dates=[...dirty]; dirty.clear();
+  if(!dates.length || !sb) return;
+  const rows = dates.map(d=>({
+    date:d, done: !!progress[d], note: notes[d]||"", links: links[d]||[], override: overrides[d]||null, updated_at:new Date().toISOString()
+  }));
+  try{
+    const {error} = await sb.from('calendar_days').upsert(rows,{onConflict:'date'});
+    if(error) throw error;
+    setSync("ok","Synced via Supabase — works on any device/browser");
+  }catch(e){
+    dates.forEach(d=>dirty.add(d));
+    setSync("off","Supabase save failed: "+(e.message||e));
+  }
+}
+async function persistCloud(){
+  try{
+    await window.storage.set(CLOUD_KEY, JSON.stringify({progress,notes,links,overrides}), false);
+    setSync("ok","Synced to your Claude account — works on any device");
+  }catch(e){
+    setSync("off","Sync failed — saved locally only, try Export");
+  }
+}
+async function connectSupabase(url,key){
+  try{
+    sb = supabase.createClient(url,key);
+    const {error} = await sb.from('calendar_days').select('date',{count:'exact',head:true});
+    if(error) throw error;
+    setSbConfig({url,key});
+    dbMode="supabase";
+    await loadFromSupabase();
+    return true;
+  }catch(e){
+    setSync("off","Connection failed: "+(e.message||e));
+    sb=null; dbMode="local";
+    return false;
+  }
+}
+async function loadFromSupabase(){
+  const {data,error} = await sb.from('calendar_days').select('*');
+  if(error) throw error;
+  progress={};notes={};links={};overrides={};
+  (data||[]).forEach(row=>{
+    if(row.done) progress[row.date]=true;
+    if(row.note) notes[row.date]=row.note;
+    if(row.links && row.links.length) links[row.date]=row.links;
+    if(row.override) overrides[row.date]=row.override;
+  });
+  saveLocal();
+  setSync("ok","Synced via Supabase — works on any device/browser");
+  renderList(); renderCalendar(); updateStats();
+}
+async function loadState(){
+  const sbCfg = getSbConfig();
+  if(sbCfg && sbCfg.url && sbCfg.key){
+    setSync("busy","Connecting to Supabase…");
+    const ok = await connectSupabase(sbCfg.url, sbCfg.key);
+    if(ok) return;
+  }
+  let cloudState = null;
+  if(hasCloud){
+    try{
+      const r = await window.storage.get(CLOUD_KEY, false);
+      if(r && r.value) cloudState = JSON.parse(r.value);
+    }catch(e){ cloudState = null; }
+  }
+  const localState = loadLocal();
+  if(cloudState){
+    progress = cloudState.progress||{}; notes = cloudState.notes||{}; links = cloudState.links||{}; overrides = cloudState.overrides||{};
+    dbMode="claude";
+    setSync("ok","Synced to your Claude account — works on any device");
+    saveLocal();
+  } else if(hasCloud){
+    progress = localState.progress||{}; notes = localState.notes||{}; links = localState.links||{}; overrides = localState.overrides||{};
+    dbMode="claude";
+    setSync("busy","Setting up cloud sync…");
+    await persistCloud();
+  } else {
+    progress = localState.progress||{}; notes = localState.notes||{}; links = localState.links||{}; overrides = localState.overrides||{};
+    dbMode="local";
+    setSync("off","Local only — this browser (Export to back up, or connect a Database)");
+  }
 }
 function effective(date){
   const base = byDate[date];
@@ -372,31 +557,38 @@ function searchLinks(task){
     {l:"Google",u:`https://www.google.com/search?q=${q}`}
   ];
 }
+function escapeHtml(str){
+  return String(str==null?'':str).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function hoursFor(type){ return type==="build"?"4–5h":type==="review"?"2–3h":type==="skip"?"":"1–1.5h"; }
 function rowHTML(s){
   const phase = PHASES[s.pIdx];
   const isDone = !!progress[s.date];
   const isPast = s.date < todayISO;
   const isToday = s.date === todayISO;
-  const missed = isPast && !isDone && s.type!=="review";
+  const missed = isPast && !isDone && s.type!=="review" && s.type!=="skip";
   const cls = ["day-row"];
   if(isDone) cls.push("completed"); if(missed) cls.push("missed"); if(isToday) cls.push("today");
   const hasNotes = !!(notes[s.date]&&notes[s.date].trim());
   const hasLinks = !!(links[s.date]&&links[s.date].length);
+  const isEdited = !!overrides[s.date];
+  const typeOpts = ["learn","build","review","skip"].map(t=>`<option value="${t}" ${s.type===t?'selected':''}>${t}</option>`).join("");
   return `<div class="${cls.join(' ')}" data-date="${s.date}" style="border-left-color:${isDone?'':(missed?'':phase.color)}">
     <div class="check-wrap"><input type="checkbox" class="done" ${isDone?'checked':''} aria-label="Mark ${s.date} complete"></div>
     <div class="date-col"><b>${s.dateObj.getDate().toString().padStart(2,'0')} ${s.dateObj.toLocaleDateString('en-GB',{month:'short'})}</b>${DOW[s.dow]} · Day ${s.dayNum}</div>
     <div class="task-col">
-      <div class="task-name" draggable="true">${s.task}</div>
-      <div class="task-meta"><span class="badge ${s.type}">${s.type}</span>${phase.name} · ${s.hours}</div>
+      <div class="task-name" draggable="true">${escapeHtml(s.task)}</div>
+      <div class="task-meta"><span class="badge ${s.type}">${s.type}</span>${phase.name} · ${s.hours}${isEdited?'<span class="badge edited">edited</span>':''}</div>
     </div>
     <div class="row-actions">
       <button class="icon-btn note-toggle ${hasNotes?'has-content':''}" title="Notes">✎</button>
       <button class="icon-btn link-toggle ${hasLinks?'has-content':''}" title="Links & resources">🔗</button>
+      <button class="icon-btn edit-toggle ${isEdited?'has-content':''}" title="Add / remove / merge topic">⚙</button>
     </div>
   </div>
   <div class="panel" data-date="${s.date}">
     <label>Notes</label>
-    <textarea class="note-input" placeholder="What did you learn / where did you get stuck…">${notes[s.date]||''}</textarea>
+    <textarea class="note-input" placeholder="What did you learn / where did you get stuck…">${escapeHtml(notes[s.date]||'')}</textarea>
     <div class="link-row"></div>
     <div class="add-link">
       <input type="text" class="link-label" placeholder="Label (e.g. lecture video)">
@@ -407,6 +599,20 @@ function rowHTML(s){
     <div class="res-block">
       <div class="rlabel">Suggested free resources</div>
       <div class="res-links"></div>
+    </div>
+    <div class="res-block edit-block">
+      <div class="rlabel">Add / remove / merge this day's topic</div>
+      <div class="add-link">
+        <input type="text" class="edit-task" placeholder="Topic name" value="${escapeHtml(s.task)}">
+        <select class="edit-type">${typeOpts}</select>
+        <button class="edit-save-btn primary">Save topic</button>
+      </div>
+      <div class="add-link">
+        <button class="edit-clear-btn danger">Remove (mark rest day)</button>
+        <input type="date" class="merge-date" min="${SCHEDULE[0].date}" max="${SCHEDULE[SCHEDULE.length-1].date}">
+        <button class="edit-merge-btn">Merge in topic from that date</button>
+        ${isEdited?'<button class="edit-restore-btn">Restore original</button>':''}
+      </div>
     </div>
   </div>`;
 }
@@ -426,10 +632,11 @@ function wireRows(){
   document.querySelectorAll(".day-row").forEach(row=>{
     const date = row.dataset.date;
     row.querySelector(".done").addEventListener("change",e=>{
-      progress[date]=e.target.checked; saveAll(); updateStats(); renderList(); renderCalendar();
+      progress[date]=e.target.checked; saveAll(date); updateStats(); renderList(); renderCalendar();
     });
     row.querySelector(".note-toggle").addEventListener("click",()=>togglePanel(row));
     row.querySelector(".link-toggle").addEventListener("click",()=>togglePanel(row));
+    row.querySelector(".edit-toggle").addEventListener("click",()=>togglePanel(row));
     // drag & drop task swap
     const tn = row.querySelector(".task-name");
     tn.addEventListener("dragstart",e=>{ e.dataTransfer.setData("text/plain", date); });
@@ -445,20 +652,45 @@ function wireRows(){
   document.querySelectorAll(".panel").forEach(panel=>{
     const date = panel.dataset.date;
     const ta = panel.querySelector(".note-input");
-    ta.addEventListener("input",()=>{ notes[date]=ta.value; saveAll(); syncHasContent(date); });
+    ta.addEventListener("input",()=>{ notes[date]=ta.value; saveAll(date); syncHasContent(date); });
     renderLinks(panel,date);
     panel.querySelector(".add-link-btn").addEventListener("click",()=>{
       const lbl = panel.querySelector(".link-label"); const url = panel.querySelector(".link-url");
       if(!url.value) return;
       links[date] = links[date]||[];
       links[date].push({label: lbl.value||url.value, url: url.value});
-      lbl.value=""; url.value=""; saveAll(); renderLinks(panel,date); syncHasContent(date); tryOEmbed(panel, links[date][links[date].length-1].url);
+      lbl.value=""; url.value=""; saveAll(date); renderLinks(panel,date); syncHasContent(date); tryOEmbed(panel, links[date][links[date].length-1].url);
     });
     const s = effective(date);
     const res = panel.querySelector(".res-links");
     const suggestion = taskDesc(s.task);
     const all = [...(suggestion?[suggestion]:[]), ...searchLinks(s.task)];
     res.innerHTML = all.map(r=>`<a href="${r.u}" target="_blank" rel="noopener">${r.l} ↗</a>`).join("");
+
+    panel.querySelector(".edit-save-btn").addEventListener("click",()=>{
+      const t = panel.querySelector(".edit-task").value.trim();
+      const ty = panel.querySelector(".edit-type").value;
+      if(!t) return;
+      const eff = effective(date);
+      overrides[date] = {task:t, type:ty, hours:hoursFor(ty), pIdx:eff.pIdx};
+      saveAll(); renderList(); renderCalendar();
+    });
+    panel.querySelector(".edit-clear-btn").addEventListener("click",()=>{
+      const eff = effective(date);
+      overrides[date] = {task:"— rest day —", type:"skip", hours:"", pIdx:eff.pIdx};
+      saveAll(); renderList(); renderCalendar();
+    });
+    panel.querySelector(".edit-merge-btn").addEventListener("click",()=>{
+      const other = panel.querySelector(".merge-date").value;
+      if(!other){ return; }
+      if(!byDate[other]){ alert("Pick a date inside the plan's range."); return; }
+      if(other===date){ alert("Pick a different date to merge from."); return; }
+      mergeInto(date, other);
+    });
+    const restoreBtn = panel.querySelector(".edit-restore-btn");
+    if(restoreBtn) restoreBtn.addEventListener("click",()=>{
+      delete overrides[date]; saveAll(date); renderList(); renderCalendar();
+    });
   });
   document.querySelectorAll(".month .toggle").forEach(btn=>{
     btn.addEventListener("click",()=>{
@@ -485,7 +717,7 @@ function renderLinks(panel,date){
   const arr = links[date]||[];
   box.innerHTML = arr.map((l,i)=>`<span class="chip"><a href="${l.url}" target="_blank" rel="noopener">${l.label}</a><button data-i="${i}">×</button></span>`).join("");
   box.querySelectorAll("button").forEach(b=>{
-    b.addEventListener("click",()=>{ arr.splice(+b.dataset.i,1); saveAll(); renderLinks(panel,date); syncHasContent(date); });
+    b.addEventListener("click",()=>{ arr.splice(+b.dataset.i,1); saveAll(date); renderLinks(panel,date); syncHasContent(date); });
   });
 }
 function tryOEmbed(panel, url){
@@ -496,10 +728,20 @@ function tryOEmbed(panel, url){
     slot.innerHTML = `<div class="oembed">${d.thumbnail_url?`<img src="${d.thumbnail_url}">`:''}<span>${d.title}</span></div>`;
   }).catch(()=>{ /* sandbox or offline — silently skip preview */ });
 }
+function mergeInto(targetDate, sourceDate){
+  const t = effective(targetDate), s = effective(sourceDate);
+  if(t.task===s.task){ /* nothing to merge */ }
+  const combined = [t.task, s.task].filter((v,i,a)=>v && a.indexOf(v)===i).join(" + ");
+  overrides[targetDate] = {task:combined, type:t.type, hours:t.hours, pIdx:t.pIdx};
+  overrides[sourceDate] = {task:`— merged into ${targetDate} —`, type:"skip", hours:"", pIdx:s.pIdx};
+  markDirty(targetDate); markDirty(sourceDate);
+  saveAll(); renderList(); renderCalendar();
+}
 function swapTasks(a,b){
   const ea = effective(a), eb = effective(b);
   overrides[a] = {task:eb.task, type:eb.type, hours:eb.hours, pIdx:eb.pIdx};
   overrides[b] = {task:ea.task, type:ea.type, hours:ea.hours, pIdx:ea.pIdx};
+  markDirty(a); markDirty(b);
   saveAll(); renderList(); renderCalendar();
 }
 
@@ -522,11 +764,12 @@ function renderCalendar(){
       const isDone = !!progress[dateStr];
       const isPast = dateStr < todayISO;
       const isToday = dateStr === todayISO;
-      const missed = isPast && !isDone && s.type!=="review";
+      const eff = effective(dateStr);
+      const missed = isPast && !isDone && eff.type!=="review" && eff.type!=="skip";
       const cls = ["cal-cell"];
       if(isDone) cls.push("done"); else if(missed) cls.push("missed"); else cls.push("future");
       if(isToday) cls.push("today");
-      cells += `<div class="${cls.join(' ')}" data-date="${dateStr}" title="${effective(dateStr).task}"><span class="dn">${d}</span><span class="dot"></span></div>`;
+      cells += `<div class="${cls.join(' ')}" data-date="${dateStr}" title="${escapeHtml(eff.task)}"><span class="dn">${d}</span><span class="dot"></span></div>`;
     }
     const mo = document.createElement("div"); mo.className="cal-month";
     mo.innerHTML = `<h3>${label}</h3><div class="cal-grid">${DOW.map(x=>`<div class="cal-dow">${x}</div>`).join("")}${cells}</div>`;
@@ -584,13 +827,13 @@ document.getElementById("viewCal").addEventListener("click",()=>{
   document.getElementById("viewList").classList.remove("active");
 });
 function visibleRows(){ return [...document.querySelectorAll(".day-row")].filter(r=>!r.classList.contains("hidden")); }
-document.getElementById("markVisible").onclick=()=>{ visibleRows().forEach(r=>progress[r.dataset.date]=true); saveAll(); updateStats(); renderList(); renderCalendar(); };
-document.getElementById("clearVisible").onclick=()=>{ visibleRows().forEach(r=>delete progress[r.dataset.date]); saveAll(); updateStats(); renderList(); renderCalendar(); };
+document.getElementById("markVisible").onclick=()=>{ visibleRows().forEach(r=>{progress[r.dataset.date]=true; markDirty(r.dataset.date);}); saveAll(); updateStats(); renderList(); renderCalendar(); };
+document.getElementById("clearVisible").onclick=()=>{ visibleRows().forEach(r=>{delete progress[r.dataset.date]; markDirty(r.dataset.date);}); saveAll(); updateStats(); renderList(); renderCalendar(); };
 document.getElementById("expandAll").onclick=()=>document.querySelectorAll(".month").forEach(m=>{m.querySelector(".days").style.display="block";m.querySelector(".toggle").textContent="Collapse";});
 document.getElementById("collapseAll").onclick=()=>document.querySelectorAll(".month").forEach(m=>{m.querySelector(".days").style.display="none";m.querySelector(".toggle").textContent="Expand";});
 document.getElementById("reset").onclick=()=>{
   if(confirm("Reset all saved progress, notes, links and reordering?")){
-    progress={};notes={};links={};overrides={}; saveAll(); updateStats(); renderList(); renderCalendar();
+    progress={};notes={};links={};overrides={}; markAllDirty(); saveAll(); updateStats(); renderList(); renderCalendar();
   }
 };
 document.getElementById("exportBtn").onclick=()=>{
@@ -605,17 +848,49 @@ document.getElementById("importFile").addEventListener("change",e=>{
     try{
       const d = JSON.parse(reader.result);
       progress = d.progress||{}; notes = d.notes||{}; links = d.links||{}; overrides = d.overrides||{};
-      saveAll(); updateStats(); renderList(); renderCalendar();
+      markAllDirty(); saveAll(); updateStats(); renderList(); renderCalendar();
       alert("Progress imported.");
     }catch(err){ alert("Couldn't read that file — is it a valid export?"); }
   };
   reader.readAsText(file);
 });
 
+/* ---------------- db modal wiring ---------------- */
+const dbModal = document.getElementById("dbModal");
+document.getElementById("dbBtn").addEventListener("click",()=>{
+  const cfg = getSbConfig();
+  if(cfg){ document.getElementById("sbUrl").value = cfg.url; document.getElementById("sbKey").value = cfg.key; }
+  dbModal.classList.add("open");
+});
+document.getElementById("dbClose").addEventListener("click",()=>dbModal.classList.remove("open"));
+dbModal.addEventListener("click",e=>{ if(e.target===dbModal) dbModal.classList.remove("open"); });
+document.getElementById("copySql").addEventListener("click",()=>{
+  navigator.clipboard.writeText(document.getElementById("sqlSnippet").textContent).then(()=>{
+    const b=document.getElementById("copySql"); const old=b.textContent; b.textContent="Copied!"; setTimeout(()=>b.textContent=old,1200);
+  });
+});
+document.getElementById("sbConnect").addEventListener("click", async ()=>{
+  const url = document.getElementById("sbUrl").value.trim();
+  const key = document.getElementById("sbKey").value.trim();
+  if(!url || !key){ document.getElementById("dbStatusLine").textContent = "Enter both the URL and the anon key."; return; }
+  document.getElementById("dbStatusLine").textContent = "Connecting…";
+  const ok = await connectSupabase(url, key);
+  if(ok){ dbModal.classList.remove("open"); }
+});
+document.getElementById("sbDisconnect").addEventListener("click", async ()=>{
+  setSbConfig(null); sb=null; dbMode="local";
+  document.getElementById("sbUrl").value=""; document.getElementById("sbKey").value="";
+  await loadState(); renderList(); renderCalendar(); updateStats();
+  document.getElementById("dbStatusLine").textContent = "Disconnected — back to local/Claude sync.";
+});
+
 /* ---------------- init ---------------- */
-renderList();
-renderCalendar();
-updateStats();
+(async function init(){
+  await loadState();
+  renderList();
+  renderCalendar();
+  updateStats();
+})();
 </script>
 </body>
 </html>
